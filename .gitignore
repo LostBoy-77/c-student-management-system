@@ -1,0 +1,15 @@
+# C build artifacts
+*.exe
+*.o
+*.obj
+*.pdb
+
+# Editor and Visual Studio files
+.vscode/
+.vs/
+Debug/
+Release/
+x64/
+
+# Runtime data
+data/*.dat
