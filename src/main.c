@@ -1,31 +1,87 @@
+#include "storage.h"
+#include "student.h"
+
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
-#define MAX_STUDENTS 100
-#define NAME_LENGTH 20
+#define DATA_FILE "data/students.dat"
+#define INPUT_LENGTH 128
 
-typedef struct
+static Student students[MAX_STUDENTS];
+static int studentCount = 0;
+
+static int readLine(const char *prompt, char *buffer, size_t size)
 {
-    int id;
-    char name[NAME_LENGTH];
-    float score;
-} Student;
+    size_t length;
 
-Student students[MAX_STUDENTS];
-int studentCount = 0;
-
-void clearInputBuffer(void)
-{
-    int ch;
-
-    while ((ch = getchar()) != '\n' && ch != EOF)
+    printf("%s", prompt);
+    if (fgets(buffer, (int)size, stdin) == NULL)
     {
+        return 0;
     }
+
+    length = strlen(buffer);
+    if (length > 0 && buffer[length - 1] == '\n')
+    {
+        buffer[length - 1] = '\0';
+    }
+    else
+    {
+        int ch;
+        while ((ch = getchar()) != '\n' && ch != EOF)
+        {
+        }
+    }
+
+    return 1;
 }
 
-void showMenu(void)
+static int readInt(const char *prompt, int *value)
 {
-    printf("\n");
-    printf("====================================\n");
+    char input[INPUT_LENGTH];
+    char *end;
+    long parsed;
+
+    if (!readLine(prompt, input, sizeof(input)))
+    {
+        return 0;
+    }
+
+    parsed = strtol(input, &end, 10);
+    if (input[0] == '\0' || *end != '\0')
+    {
+        return 0;
+    }
+
+    *value = (int)parsed;
+    return 1;
+}
+
+static int readFloat(const char *prompt, float *value)
+{
+    char input[INPUT_LENGTH];
+    char *end;
+    float parsed;
+
+    if (!readLine(prompt, input, sizeof(input)))
+    {
+        return 0;
+    }
+
+    parsed = strtof(input, &end);
+    if (input[0] == '\0' || *end != '\0')
+    {
+        return 0;
+    }
+
+    *value = parsed;
+    return 1;
+}
+
+static void showMenu(void)
+{
+    printf("\n====================================\n");
     printf(" Student Management System\n");
     printf("====================================\n");
     printf("1. Add student\n");
@@ -35,47 +91,16 @@ void showMenu(void)
     printf("5. Delete student\n");
     printf("6. Sort by score\n");
     printf("7. Show statistics\n");
-    printf("0. Exit\n");
+    printf("0. Save and exit\n");
     printf("====================================\n");
-    printf("Please enter your choice: ");
 }
 
-void addStudent(void)
+static void printStudent(const Student *student)
 {
-    Student newStudent;
-
-    if (studentCount >= MAX_STUDENTS)
-    {
-        printf("Student list is full.\n");
-        return;
-    }
-
-    printf("Enter student ID: ");
-    if (scanf("%d", &newStudent.id) != 1)
-    {
-        printf("Invalid student ID.\n");
-        clearInputBuffer();
-        return;
-    }
-
-    printf("Enter student name: ");
-    scanf("%19s", newStudent.name);
-
-    printf("Enter student score: ");
-    if (scanf("%f", &newStudent.score) != 1)
-    {
-        printf("Invalid score.\n");
-        clearInputBuffer();
-        return;
-    }
-
-    students[studentCount] = newStudent;
-    studentCount++;
-
-    printf("Student added successfully.\n");
+    printf("%-10d %-30s %-10.2f\n", student->id, student->name, student->score);
 }
 
-void showAllStudents(void)
+static void showAllStudents(void)
 {
     int i;
 
@@ -85,33 +110,162 @@ void showAllStudents(void)
         return;
     }
 
-    printf("\n------------------------------------\n");
-    printf("%-10s %-15s %-10s\n", "ID", "Name", "Score");
-    printf("------------------------------------\n");
-
+    printf("\n%-10s %-30s %-10s\n", "ID", "Name", "Score");
+    printf("------------------------------------------------------\n");
     for (i = 0; i < studentCount; i++)
     {
-        printf("%-10d %-15s %-10.2f\n",
-               students[i].id,
-               students[i].name,
-               students[i].score);
+        printStudent(&students[i]);
+    }
+}
+
+static void addStudent(void)
+{
+    Student student;
+    int result;
+
+    if (!readInt("Enter student ID: ", &student.id) || student.id <= 0)
+    {
+        printf("Invalid ID. It must be a positive integer.\n");
+        return;
+    }
+    if (!readLine("Enter student name: ", student.name, sizeof(student.name)) || student.name[0] == '\0')
+    {
+        printf("Name cannot be empty.\n");
+        return;
+    }
+    if (!readFloat("Enter score (0-100): ", &student.score))
+    {
+        printf("Invalid score.\n");
+        return;
     }
 
-    printf("------------------------------------\n");
+    result = addStudentRecord(students, &studentCount, student);
+    if (result == STUDENT_DUPLICATE_ID)
+    {
+        printf("This student ID already exists.\n");
+    }
+    else if (result == STUDENT_LIST_FULL)
+    {
+        printf("Student list is full.\n");
+    }
+    else if (result == STUDENT_INVALID_DATA)
+    {
+        printf("ID, name or score is invalid.\n");
+    }
+    else
+    {
+        printf("Student added successfully.\n");
+    }
+}
+
+static void searchStudent(void)
+{
+    int id;
+    int index;
+
+    if (!readInt("Enter student ID to search: ", &id))
+    {
+        printf("Invalid ID.\n");
+        return;
+    }
+
+    index = findStudentIndexById(students, studentCount, id);
+    if (index < 0)
+    {
+        printf("Student not found.\n");
+        return;
+    }
+
+    printf("\n%-10s %-30s %-10s\n", "ID", "Name", "Score");
+    printStudent(&students[index]);
+}
+
+static void modifyStudent(void)
+{
+    int id;
+    char name[NAME_LENGTH];
+    float score;
+    int result;
+
+    if (!readInt("Enter student ID to modify: ", &id) ||
+        !readLine("Enter new name: ", name, sizeof(name)) ||
+        !readFloat("Enter new score (0-100): ", &score))
+    {
+        printf("Invalid input.\n");
+        return;
+    }
+
+    result = modifyStudentRecord(students, studentCount, id, name, score);
+    if (result == STUDENT_NOT_FOUND)
+    {
+        printf("Student not found.\n");
+    }
+    else if (result == STUDENT_INVALID_DATA)
+    {
+        printf("Name or score is invalid.\n");
+    }
+    else
+    {
+        printf("Student modified successfully.\n");
+    }
+}
+
+static void deleteStudent(void)
+{
+    int id;
+
+    if (!readInt("Enter student ID to delete: ", &id))
+    {
+        printf("Invalid ID.\n");
+        return;
+    }
+
+    if (deleteStudentRecord(students, &studentCount, id) == STUDENT_NOT_FOUND)
+    {
+        printf("Student not found.\n");
+    }
+    else
+    {
+        printf("Student deleted successfully.\n");
+    }
+}
+
+static void showStatistics(void)
+{
+    StudentStatistics statistics;
+
+    if (studentCount == 0)
+    {
+        printf("No student data available.\n");
+        return;
+    }
+
+    statistics = calculateStatistics(students, studentCount);
+    printf("Average score: %.2f\n", statistics.average);
+    printf("Highest score: %.2f\n", statistics.highest);
+    printf("Lowest score:  %.2f\n", statistics.lowest);
+    printf("Pass rate:     %.2f%%\n", statistics.passRate);
 }
 
 int main(void)
 {
     int choice;
 
-    do
+    if (!loadStudents(DATA_FILE, students, &studentCount))
+    {
+        printf("Warning: existing data file is invalid. Starting with an empty list.\n");
+    }
+    else
+    {
+        printf("Loaded %d student record(s).\n", studentCount);
+    }
+
+    for (;;)
     {
         showMenu();
-
-        if (scanf("%d", &choice) != 1)
+        if (!readInt("Please enter your choice: ", &choice))
         {
-            printf("Invalid input. Please enter a number.\n");
-            clearInputBuffer();
+            printf("Invalid input. Please enter a menu number.\n");
             continue;
         }
 
@@ -124,27 +278,32 @@ int main(void)
             showAllStudents();
             break;
         case 3:
-            printf("Search student: to be implemented.\n");
+            searchStudent();
             break;
         case 4:
-            printf("Modify student: to be implemented.\n");
+            modifyStudent();
             break;
         case 5:
-            printf("Delete student: to be implemented.\n");
+            deleteStudent();
             break;
         case 6:
-            printf("Sort by score: to be implemented.\n");
+            sortStudentsByScore(students, studentCount);
+            printf("Students sorted by score from high to low.\n");
+            showAllStudents();
             break;
         case 7:
-            printf("Show statistics: to be implemented.\n");
+            showStatistics();
             break;
         case 0:
-            printf("Goodbye.\n");
+            if (saveStudents(DATA_FILE, students, studentCount))
+            {
+                printf("Data saved. Goodbye.\n");
+                return 0;
+            }
+            printf("Failed to save data. Please check the data directory.\n");
             break;
         default:
-            printf("Invalid choice. Please try again.\n");
+            printf("Unknown menu option.\n");
         }
-    } while (choice != 0);
-
-    return 0;
+    }
 }
